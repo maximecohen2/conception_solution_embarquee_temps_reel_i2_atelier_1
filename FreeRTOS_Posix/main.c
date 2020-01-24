@@ -50,20 +50,34 @@ void vApplicationIdleHook( void )
 }
 #endif
 
-#define MAX_TASK (1 << 7)
+#define MAX_TASK (1 << 3)
+//#define ARRAY_SIZE (1 << 20)
 #define ARRAY_SIZE (1 << 20)
 
 void vSort(void *pvParameters);
-void vPivot(int taskId, int first, int last);
+void vPivot(int first, int last, int taskId, int lastId);
 
 int data[ARRAY_SIZE];
 
 struct Parameter {
-    int first, last;
+    int first, last, lastId;
 };
 static struct Parameter parameters[MAX_TASK] = {
-    { 0, ARRAY_SIZE-1 } 
+    { 0, ARRAY_SIZE-1, MAX_TASK - 1 }
 };
+
+void printData()
+{
+    int i = 0;
+    while (i < ARRAY_SIZE)
+    {
+        printf("%d ", data[i]);
+        ++i;
+    }
+    printf("\n");
+    fflush(stdout);
+}
+
 
 int main() {
 	int i;
@@ -73,11 +87,12 @@ int main() {
 
     srand(time(NULL));
 
-    for (i = 0; i<ARRAY_SIZE; i++) {
+    for (i = 0; i < ARRAY_SIZE; i++) {
         data[i] = rand();
     }
     TaskHandle_t taskHandle;
 
+    printData();
     xTaskCreate(&vSort, "", 20, (void*)0, 1, &taskHandle);
 
 	vTaskStartScheduler();
@@ -86,7 +101,8 @@ int main() {
 void vSort(void *pvParameters) {
     int taskId = (int)pvParameters;
     struct Parameter params = parameters[taskId];
-    vPivot(taskId, params.first, params.last);
+
+    vPivot(params.first, params.last, taskId, params.lastId);
 
     if (taskId == 0) {
 		while(uxTaskGetNumberOfTasks()>1) {
@@ -99,31 +115,53 @@ void vSort(void *pvParameters) {
 	vTaskDelete(NULL);
 }
 
-void vPivot(int taskId, int first, int last) {
+void swap(int firstId, int lastId) {
+    int temp;
+
+    temp = data[firstId];
+    data[firstId] = data[lastId];
+    data[lastId] = temp;
+}
+
+void vPivot(int first, int last, int taskId, int lastId) {
     portTickType start = xTaskGetTickCount();
     int pos = first;
 
     // AFAIRE : condition d'arrêt (autre que true) et Faire la répartition
-	if (last - first < 2) {
+	if (first >= last) {
 		return;
 	}
 
-    // Répartition du tableau de gauche
-    int leftTaskId  = taskId * 2 + 1;
-    int rightTaskId;
+	int i = first;
+	int j = last;
+	while (i < j)
+    {
+        while (data[i] <= data[pos] && i < last)
+            ++i;
+        while (data[j] > data[pos])
+            --j;
+        if (i < j)
+            swap(i, j);
+    }
+    swap(pos, j);
+	pos = i;
 
-    if (leftTaskId < MAX_TASK) {
+    // Répartition du tableau de gauche
+    if (taskId != lastId) {
         TaskHandle_t taskHandle;
-        
-        parameters[leftTaskId].first = first;
-        parameters[leftTaskId].last  = pos-1;
-        // AFAIRE Créer la tâche pour répartir le tableau de gauche
-		rightTaskId = taskId * 2 + 2;
+        int newTaskId = (taskId + lastId + 1) / 2;
+
+        parameters[newTaskId].first = first;
+        parameters[newTaskId].last  = pos - 1;
+        parameters[newTaskId].lastId = lastId;
+        lastId = newTaskId - 1;
+        xTaskCreate(vSort, "", 50, (void*)newTaskId, 1, &taskHandle);
+
     }
     else {
-        // AFAIRE Appel récursif pour répartir le tableau de gauche
-		rightTaskId = taskId;
+        vPivot(first, pos - 1, taskId, lastId);
     }
 	// Répartition du tableau de droite
-	vPivot(rightTaskId, pos + 1, last);
+    vPivot(pos + 1, last, taskId, lastId);
+    printData();
 }
